@@ -1,0 +1,161 @@
+
+{% extends "base.html" %}
+
+{% block content %}
+<div class="grid grid-cols-4 gap-4">
+    <!-- Left sidebar for chat rooms -->
+    <div class="col-span-1 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+        <h2 class="text-xl font-bold mb-4 dark:text-white">Chat Rooms</h2>
+
+        <!-- Floating action button for creating rooms -->
+        <button onclick="openRoomModal()" class="fixed bottom-8 right-8 bg-blue-500 text-white p-4 rounded-full shadow-lg hover:bg-blue-600">
+            ➕
+        </button>
+
+        <!-- Room list -->
+        <ul class="space-y-2">
+            {% for room in rooms %}
+            <li>
+                <div onclick="joinRoom('{{ room.id }}')" class="cursor-pointer bg-gray-100 dark:bg-gray-700 p-3 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+                    <h3 class="font-bold dark:text-white">{{ room.name }}</h3>
+                    {% if room.is_private %}
+                    <span class="text-xs text-gray-500 dark:text-gray-300">🔒 Private</span>
+                    {% endif %}
+                    <p class="text-sm text-gray-600 dark:text-gray-400">5 online</p>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Right side chat area -->
+    <div class="col-span-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+        <!-- Messages container -->
+        <div id="messages" class="h-96 overflow-y-auto mb-4 p-4 border rounded dark:border-gray-700">
+            <!-- Messages will appear here -->
+        </div>
+
+        <!-- Message input form -->
+        <form id="message-form" class="flex gap-2">
+            <input type="text" id="message-input" class="flex-1 p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Type your message...">
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                Send
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Room creation modal -->
+<div id="roomModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg w-96">
+        <h2 class="text-xl font-bold mb-4 dark:text-white">Create Room</h2>
+        <form action="{{ url_for('create_room') }}" method="post">
+            <input type="text" name="room_name" placeholder="Room name" class="w-full p-2 border rounded mb-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white" required>
+            <div class="mb-4">
+                <label class="flex items-center dark:text-white">
+                    <input type="checkbox" name="is_private" value="true" class="mr-2">
+                    Private Room
+                </label>
+            </div>
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded w-full hover:bg-blue-600">
+                Create Room
+            </button>
+        </form>
+        <button onclick="closeRoomModal()" class="mt-4 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+            Cancel
+        </button>
+    </div>
+</div>
+
+<script>
+    // Initialize socket connection
+    const socket = io();
+    let currentRoom = null;
+
+    // Room modal functions
+    function openRoomModal() {
+        document.getElementById('roomModal').classList.remove('hidden');
+    }
+
+    function closeRoomModal() {
+        document.getElementById('roomModal').classList.add('hidden');
+    }
+
+    // Join room function
+    function joinRoom(roomId) {
+        if (currentRoom) {
+            socket.emit('leave', { room: currentRoom });
+        }
+        currentRoom = roomId;
+        socket.emit('join', { room: roomId });
+        document.getElementById('messages').innerHTML = '';
+        loadRoomMessages(roomId);
+    }
+
+    // Handle message form submission
+    document.getElementById('message-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const input = document.getElementById('message-input');
+        const message = input.value.trim();
+        if (message && currentRoom) {
+            socket.emit('message', { room: currentRoom, message: message });
+            input.value = '';
+        }
+    });
+
+    // Handle incoming messages
+    socket.on('message', function (data) {
+        const messagesDiv = document.getElementById('messages');
+        const messageElement = document.createElement('div');
+        messageElement.className = 'flex mb-2';
+        messageElement.innerHTML = `
+            <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center mr-2">
+                ${data.user[0]}
+            </div>
+            <div class="bg-blue-100 dark:bg-gray-700 p-3 rounded-lg max-w-2/3">
+                <span class="font-bold dark:text-white">${data.user}:</span>
+                <span class="dark:text-white">${data.message}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400 ml-2">${data.timestamp}</span>
+            </div>
+        `;
+        messagesDiv.appendChild(messageElement);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    // Handle status messages
+    socket.on('status', function (data) {
+        const messagesDiv = document.getElementById('messages');
+        const statusElement = document.createElement('div');
+        statusElement.className = 'text-gray-500 dark:text-gray-400 text-sm mb-2 text-center';
+        statusElement.textContent = data.msg;
+        messagesDiv.appendChild(statusElement);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    });
+
+    // Load room messages
+    function loadRoomMessages(roomId) {
+        fetch(`/messages/${roomId}`)
+            .then(response => response.json())
+            .then(messages => {
+                messages.forEach(message => {
+                    const messagesDiv = document.getElementById('messages');
+                    const messageElement = document.createElement('div');
+                    messageElement.className = 'flex mb-2';
+                    messageElement.innerHTML = `
+                        <div class="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center mr-2">
+                            ${message.user[0]}
+                        </div>
+                        <div class="bg-blue-100 dark:bg-gray-700 p-3 rounded-lg max-w-2/3">
+                            <span class="font-bold dark:text-white">${message.user}:</span>
+                            <span class="dark:text-white">${message.message}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 ml-2">${message.timestamp}</span>
+                        </div>
+                    `;
+                    messagesDiv.appendChild(messageElement);
+                });
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            })
+            .catch(error => console.error('Error loading messages:', error));
+    }
+</script>
+{% endblock %}
